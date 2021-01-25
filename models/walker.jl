@@ -86,25 +86,25 @@ ns = 1                    # slack
 g = 9.81     # gravity
 
 # Model parameters
-m_torso = 1.0
-m_thigh = 0.01
-m_calf = 0.01
-m_foot = 0.001
+m_torso = 34.66
+m_thigh = 7.77
+m_calf = 3.52
+m_foot = 1.05
 
-J_torso = 0.1
-J_thigh = 0.001
-J_calf = 0.001
-J_foot = 0.0001
+J_torso = 6.41
+J_thigh = 0.02
+J_calf = 0.02
+J_foot = 8.8e-3
 
-l_torso = 0.25
-l_thigh = 0.25
-l_calf = 0.25
-l_foot = 0.1
+l_torso = 0.52
+l_thigh = 0.40
+l_calf = 0.43
+l_foot = 0.26
 
-d_torso = 0.125
-d_thigh = 0.125
-d_calf = 0.125
-d_foot = 0.05
+d_torso = l_torso / 2
+d_thigh = l_thigh / 2
+d_calf = l_calf / 2
+d_foot = l_foot / 2
 
 n = 2 * nq
 m = nu + nc + nb + nc + nb + ns
@@ -298,6 +298,44 @@ function jacobian_3(model::Walker, q; body = :foot_1, mode = :ee)
 
 	return jac
 end
+
+""" Get COM jacobian """
+function jacobian_4(model::Walker, q)
+
+	m_tot = model.m_torso + model.m_thigh1 + model.m_thigh2 + model.m_calf1 + model.m_calf2 + model.m_foot1 + model.m_foot2
+	Jw = [0., 0, 1, 1, 1, 1, 1, 1, 1]'
+
+	# torso
+	J_torso = jacobian_1(model, q, body = :torso, mode = :com)
+	Jv = (model.m_torso / m_tot) * J_torso
+
+	# thigh 1
+	J_thigh_1 = jacobian_1(model, q, body = :thigh_1, mode = :com)
+	Jv += (model.m_thigh1 / m_tot) * J_thigh_1
+
+	# leg 1
+	J_calf_1 = jacobian_2(model, q, body = :calf_1, mode = :com)
+	Jv += (model.m_calf1 / m_tot) * J_calf_1
+
+	# foot 1
+	J_foot_1 = jacobian_3(model, q, body = :foot_1, mode = :com)
+	Jv += (model.m_foot1 / m_tot) * J_foot_1
+
+	# thigh 2
+	J_thigh_2 = jacobian_1(model, q, body = :thigh_2, mode = :com)
+	Jv += (model.m_thigh2 / m_tot) * J_thigh_2
+
+	# leg 2
+	J_calf_2 = jacobian_2(model, q, body = :calf_2, mode = :com)
+	Jv += (model.m_calf2 / m_tot) * J_calf_2
+
+	# foot 2
+	J_foot_2 = jacobian_3(model, q, body = :foot_2, mode = :com)
+	Jv += (model.m_foot2 / m_tot) * J_foot_2
+
+	return [Jv; Jw]
+end
+
 
 # Lagrangian
 

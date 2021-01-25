@@ -104,9 +104,11 @@ visualize!(vis, model, q_ref, Δt = h)
 # ul <= u <= uu
 u1 = initial_torque(model, q1, h)[model.idx_u] # gravity compensation for current q
 _uu = Inf * ones(model.m)
-_uu[model.idx_u] .= 10.0
+# _uu[model.idx_u] .= 10.0
+_uu[model.idx_u] = [1e-3, 100, 100, 50, 50, 20, 20]
 _ul = zeros(model.m)
-_ul[model.idx_u] .= -10.0
+# _ul[model.idx_u] .= -10.0
+_ul[model.idx_u] = [-1e-3, -100, -100, -50, -50, -20, -20]
 ul, uu = control_bounds(model, T, _ul, _uu)
 
 xl, xu = state_bounds(model, T,
@@ -115,12 +117,95 @@ xl, xu = state_bounds(model, T,
     xT = [qT; qT]) # goal state
 
 # Objective
-include_objective(["velocity", "nonlinear_stage"])
+include_objective(["velocity", "nonlinear_stage", "task_momentum"])
 
 x0 = configuration_to_state(q_ref)
 
 # penalty on slack variable
 obj_penalty = PenaltyObjective(1.0e5, model.m)
+
+### Experimental ###
+function get_com_momentum(q)
+	J = jacobian_4(model, q)
+	M = M_func(model, q)
+	Λ = inv(J*inv(M)*J')
+	return Λ*J
+end
+
+function get_heel1_momentum(q)
+	J = jacobian_2(model, q, body = :calf_1, mode = :ee)
+	M = M_func(model, q)
+	Λ = inv(J*inv(M)*J')
+	return Λ*J
+end
+
+function get_heel2_momentum(q)
+	J = jacobian_2(model, q, body = :calf_2, mode = :ee)
+	M = M_func(model, q)
+	Λ = inv(J*inv(M)*J')
+	return Λ*J
+end
+
+function get_heel1_effective_mass(q)
+	J = jacobian_2(model, q, body = :calf_1, mode = :ee)
+	M = M_func(model, q)
+	Λ_inv = J*inv(M)*J'
+	return Λ_inv*J
+end
+
+function get_heel2_effective_mass(q)
+	J = jacobian_2(model, q, body = :calf_2, mode = :ee)
+	M = M_func(model, q)
+	Λ_inv = J*inv(M)*J'
+	return Λ_inv*J
+end
+
+# Angular momentum regulated to 0
+q_v = 1e-1*[0., 0, 1]
+com_angular_momentum_control = task_momentum_objective(
+    [Diagonal(q_v) for t = 1:T-1],
+    model.nq,
+    h = h,
+	get_com_momentum,
+    idx_angle = collect([1, 2, 3, 4, 5, 6, 7, 8 ,9])
+	)
+
+# Min L2 effective mass (right and left heel)
+q_v = 1e-1*[1., 1, 0]
+heel1_effective_mass_control = task_momentum_objective(
+    [Diagonal(q_v) for t = 1:T-1],
+    model.nq,
+    h = h,
+	get_heel1_effective_mass,
+    idx_angle = collect([1, 2, 3, 4, 5, 6, 7, 8 ,9])
+	)
+
+q_v = 1e-1*[1., 1, 0]
+heel2_effective_mass_control = task_momentum_objective(
+    [Diagonal(q_v) for t = 1:T-1],
+    model.nq,
+    h = h,
+	get_heel2_effective_mass,
+    idx_angle = collect([1, 2, 3, 4, 5, 6, 7, 8, 9])
+	)
+
+# Heel L2 smoothing
+
+# Quadratic state-energy cost
+obj_control = quadratic_tracking_objective(
+    [Diagonal(1.0e-1 * ones(model.n)) for t = 1:T],
+    [Diagonal([1.0e-3 * ones(model.nu)..., 0.0 * ones(model.m - model.nu)...]) for t = 1:T-1],
+    [x0[end] for t = 1:T],
+    [[u1; zeros(model.m - model.nu)] for t = 1:T-1])
+
+obj = MultiObjective([obj_penalty,
+                      obj_control,
+					  com_angular_momentum_control,
+					  heel1_effective_mass_control,
+					  heel2_effective_mass_control])
+					  # obj_forward])
+###
+#---
 
 # quadratic tracking objective
 # Σ (x - xref)' Q (x - x_ref) + (u - u_ref)' R (u - u_ref)
@@ -197,6 +282,7 @@ obj = MultiObjective([obj_penalty,
 					  obj_tf])
 					  # obj_forward])
 
+#---
 # Constraints
 include_constraints(["contact", "loop", "contact_no_slip", "free_time"])
 # con_loop = loop_constraints(model, collect([(2:7)...,(9:14)...]), 1, T)
@@ -226,7 +312,7 @@ include_snopt()
 @time z̄, info = solve(prob, copy(z0),
     nlp = :SNOPT7,
     tol = 1.0e-3, c_tol = 1.0e-3, mapl = 5,
-    time_limit = 60 * 3)
+    time_limit = 5 * 60, max_iter = 1e4)
 @show check_slack(z̄, prob)
 x̄, ū = unpack(z̄, prob)
 visualize!(vis, model, state_to_configuration(x̄), Δt = h)
@@ -240,7 +326,7 @@ visualize!(vis, model, state_to_configuration(x̄), Δt = h)
 # 	@show check_slack(z̄, prob)
 # 	x̄, ū = unpack(z̄, prob)
 #     tfc, tc, h̄ = get_time(ū)
-#
+
 # 	#projection
 # 	Q = [Diagonal(ones(model.n)) for t = 1:T]
 # 	R = [Diagonal(0.1 * ones(model.m)) for t = 1:T-1]

@@ -25,6 +25,7 @@ include("problem.jl")
 include("objective.jl")
 include("objectives/quadratic.jl")
 include("objectives/penalty.jl")
+include("objectives/task_momentum.jl")
 
 include("constraints.jl")
 include("constraints/dynamics.jl")
