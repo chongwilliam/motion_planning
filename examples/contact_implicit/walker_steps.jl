@@ -125,6 +125,17 @@ x0 = configuration_to_state(q_ref)
 obj_penalty = PenaltyObjective(1.0e5, model.m)
 
 ### Experimental ###
+# Configurations
+# 1: x pos
+# 2: z pos
+# 3: torso angle (rel. to downward vertical)
+# 4: thigh 1 angle (rel. to downward vertical)
+# 5: calf 1 (rel. to downward vertical)
+# 6: thigh 2 (rel. to downward vertical)
+# 7: calf 2 (rel. to downward vertical)
+# 8: foot 1 (rel. to downward vertical)
+# 9: foot 2 (rel. to downward vertical)
+
 function get_com_momentum(q)
 	J = jacobian_4(model, q)
 	M = M_func(model, q)
@@ -134,6 +145,8 @@ end
 
 function get_heel1_momentum(q)
 	J = jacobian_2(model, q, body = :calf_1, mode = :ee)
+	Jw = [0., 0, 1, 1, 1, 0, 0, 1, 0]'
+	J = [J; Jw]
 	M = M_func(model, q)
 	Λ = inv(J*inv(M)*J')
 	return Λ*J
@@ -141,6 +154,8 @@ end
 
 function get_heel2_momentum(q)
 	J = jacobian_2(model, q, body = :calf_2, mode = :ee)
+	Jw = [0., 0, 1, 0, 0, 1, 1, 0, 1]'
+	J = [J; Jw]
 	M = M_func(model, q)
 	Λ = inv(J*inv(M)*J')
 	return Λ*J
@@ -148,6 +163,8 @@ end
 
 function get_heel1_effective_mass(q)
 	J = jacobian_2(model, q, body = :calf_1, mode = :ee)
+	Jw = [0., 0, 1, 1, 1, 0, 0, 1, 0]'
+	J = [J; Jw]
 	M = M_func(model, q)
 	Λ_inv = J*inv(M)*J'
 	return Λ_inv*J
@@ -155,6 +172,8 @@ end
 
 function get_heel2_effective_mass(q)
 	J = jacobian_2(model, q, body = :calf_2, mode = :ee)
+	Jw = [0., 0, 1, 0, 0, 1, 1, 0, 1]'
+	J = [J; Jw]
 	M = M_func(model, q)
 	Λ_inv = J*inv(M)*J'
 	return Λ_inv*J
