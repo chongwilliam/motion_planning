@@ -104,11 +104,9 @@ visualize!(vis, model, q_ref, Δt = h)
 # ul <= u <= uu
 u1 = initial_torque(model, q1, h)[model.idx_u] # gravity compensation for current q
 _uu = Inf * ones(model.m)
-# _uu[model.idx_u] .= 10.0
-_uu[model.idx_u] = [1e-3, 100, 100, 50, 50, 20, 20]
+_uu[model.idx_u] = [10, 100, 50, 100, 50, 40, 40]
 _ul = zeros(model.m)
-# _ul[model.idx_u] .= -10.0
-_ul[model.idx_u] = [-1e-3, -100, -100, -50, -50, -20, -20]
+_ul[model.idx_u] = [-10, -100, -50, -100, -50, -40, -40]
 ul, uu = control_bounds(model, T, _ul, _uu)
 
 xl, xu = state_bounds(model, T,
@@ -140,6 +138,7 @@ function get_com_momentum(q)
 	J = jacobian_4(model, q)
 	M = M_func(model, q)
 	Λ = inv(J*inv(M)*J')
+	# Λ = J*inv(M)*J'
 	return Λ*J
 end
 
@@ -149,6 +148,7 @@ function get_heel1_momentum(q)
 	J = [J; Jw]
 	M = M_func(model, q)
 	Λ = inv(J*inv(M)*J')
+	# Λ = J*inv(M)*J'
 	return Λ*J
 end
 
@@ -158,6 +158,7 @@ function get_heel2_momentum(q)
 	J = [J; Jw]
 	M = M_func(model, q)
 	Λ = inv(J*inv(M)*J')
+	# Λ = J*inv(M)*J'
 	return Λ*J
 end
 
@@ -180,48 +181,49 @@ function get_heel2_effective_mass(q)
 end
 
 # Angular momentum regulated to 0
-q_v = 1e-1*[0., 0, 1]
+gain = 1e1
+q_v = gain*[0., 0, 1]
 com_angular_momentum_control = task_momentum_objective(
     [Diagonal(q_v) for t = 1:T-1],
     model.nq,
     h = h,
 	get_com_momentum,
-    idx_angle = collect([1, 2, 3, 4, 5, 6, 7, 8 ,9])
+    idx_angle = collect([3, 4, 5, 6, 7, 8 ,9])
 	)
 
 # Min L2 effective mass (right and left heel)
-q_v = 1e-1*[1., 1, 0]
+q_v = gain*[1., 1, 0]
 heel1_effective_mass_control = task_momentum_objective(
     [Diagonal(q_v) for t = 1:T-1],
     model.nq,
     h = h,
 	get_heel1_effective_mass,
-    idx_angle = collect([1, 2, 3, 4, 5, 6, 7, 8 ,9])
+    idx_angle = collect([3, 4, 5, 6, 7, 8 ,9])
 	)
 
-q_v = 1e-1*[1., 1, 0]
+q_v = gain*[1., 1, 0]
 heel2_effective_mass_control = task_momentum_objective(
     [Diagonal(q_v) for t = 1:T-1],
     model.nq,
     h = h,
 	get_heel2_effective_mass,
-    idx_angle = collect([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    idx_angle = collect([3, 4, 5, 6, 7, 8, 9])
 	)
 
 # Heel L2 smoothing
 
 # Quadratic state-energy cost
 obj_control = quadratic_tracking_objective(
-    [Diagonal(1.0e-1 * ones(model.n)) for t = 1:T],
-    [Diagonal([1.0e-3 * ones(model.nu)..., 0.0 * ones(model.m - model.nu)...]) for t = 1:T-1],
+    [Diagonal(1.0e-3 * ones(model.n)) for t = 1:T],
+    [Diagonal([1.0e-1 * ones(model.nu)..., 0.0 * ones(model.m - model.nu)...]) for t = 1:T-1],
     [x0[end] for t = 1:T],
     [[u1; zeros(model.m - model.nu)] for t = 1:T-1])
 
 obj = MultiObjective([obj_penalty,
                       obj_control,
-					  com_angular_momentum_control,
-					  heel1_effective_mass_control,
-					  heel2_effective_mass_control])
+					  com_angular_momentum_control])
+					  # heel1_effective_mass_control,
+					  # heel2_effective_mass_control])
 					  # obj_forward])
 ###
 #---
@@ -295,7 +297,7 @@ obj = MultiObjective([obj_penalty,
                       obj_control,
                       obj_velocity,
                       obj_th,
-                      obj_tl,
+                      # obj_tl,
                       obj_fh1,
                       obj_fh2,
 					  obj_tf])
@@ -324,14 +326,15 @@ prob = trajectory_optimization_problem(model,
 u0 = [[u1; 1.0e-3 * rand(model.m - model.nu)] for t = 1:T-1] # random controls
 
 # Pack trajectories into vector
-z0 = pack(x0, u0, prob) + 0.005 * rand(prob.num_var)
+# z0 = pack(x0, u0, prob) + 0.005 * rand(prob.num_var)
+z0 = pack(x0, u0, prob)
 
 # Solve
 include_snopt()
 @time z̄, info = solve(prob, copy(z0),
     nlp = :SNOPT7,
     tol = 1.0e-3, c_tol = 1.0e-3, mapl = 5,
-    time_limit = 5 * 60, max_iter = 1e4)
+    time_limit = 10 * 60, max_iter = 1e3)
 @show check_slack(z̄, prob)
 x̄, ū = unpack(z̄, prob)
 visualize!(vis, model, state_to_configuration(x̄), Δt = h)

@@ -106,6 +106,27 @@ d_thigh = l_thigh / 2
 d_calf = l_calf / 2
 d_foot = l_foot / 2
 
+# # Model parameters
+# m_torso = 1.0
+# m_thigh = 0.01
+# m_calf = 0.01
+# m_foot = 0.001
+#
+# J_torso = 0.1
+# J_thigh = 0.001
+# J_calf = 0.001
+# J_foot = 0.0001
+#
+# l_torso = 0.25
+# l_thigh = 0.25
+# l_calf = 0.25
+# l_foot = 0.1
+#
+# d_torso = 0.125
+# d_thigh = 0.125
+# d_calf = 0.125
+# d_foot = 0.05
+
 n = 2 * nq
 m = nu + nc + nb + nc + nb + ns
 d = nq

@@ -33,8 +33,8 @@ function objective(Z, obj::TaskMomentumObjective, idx, T)
         Λ = obj.task_momentum(q⁻)
 
         # J += v' * obj.Q[t] * Λ * v
-        J += (Λ*v)'*obj.Q[t]*(Λ*v)
-        # J += v'*obj.Q[t]*(Λ*v)
+        J += v' * Λ' * obj.Q[t] * Λ * v
+        # J += v' * obj.Q[t] *  Λ * v
     end
 
     return J
@@ -45,6 +45,7 @@ function objective_gradient!(∇J, Z, obj::TaskMomentumObjective, idx, T)
     # tmp(y) = objective(y, obj, idx, T)
     # ∇J .+= ForwardDiff.gradient(tmp, Z)
     ∇J .+= ForwardDiff.gradient(x->objective(x, obj, idx, T), Z)
+    # ∇J .+= FiniteDiff.finite_difference_gradient(x->objective(x, obj, idx, T), Z)
 
     # for t = 1:T-1
     #     x = view(Z, idx.x[t])
