@@ -106,7 +106,7 @@ d_thigh = l_thigh / 2
 d_calf = l_calf / 2
 d_foot = l_foot / 2
 
-# # Model parameters
+# Model parameters
 # m_torso = 1.0
 # m_thigh = 0.01
 # m_calf = 0.01
