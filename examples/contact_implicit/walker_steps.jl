@@ -117,22 +117,48 @@ function initial_configuration(model, θ_torso, θ_thigh_1, θ_leg_1, θ_thigh_2
     return q1, qM, qT
 end
 q1, qM, qT = initial_configuration(model, -pi / 100.0, pi / 10.0, -pi / 25.0, -pi / 25.0)
-# q_ref = [linear_interpolation(q1, qM, Tm)...,
-    # linear_interpolation(qM, qT, Tm)[1:end]...]
-q_ref = linear_interpolation(q1, qT, T)
+q_ref = [linear_interpolation(q1, qM, Tm)...,
+    linear_interpolation(qM, qT, Tm)[1:end]...]
+# q_ref = linear_interpolation(q1, qT, T)
 x_ref = configuration_to_state(q_ref)
 visualize!(vis, model, q_ref, Δt = h)
 visualize!(vis, model, [q1], Δt = h)
 
-# q1 = zeros(model.nq)
-# q1[8] = pi / 2.0
-# q1[9] = pi / 2.0
-# q1[2] = model.l_thigh1 + model.l_calf1
+ϕ_func(model, q1)
+
+# feet positions
+Tm = convert(Int64, floor(0.5 * T))
+
+foot_2_1 = kinematics_2(model, q1, body = :calf_2, mode = :ee)
+foot_2_M = kinematics_2(model, qM, body = :calf_2, mode = :ee)
+
+foot_1_M = kinematics_2(model, qM, body = :calf_1, mode = :ee)
+foot_1_T = kinematics_2(model, qT, body = :calf_1, mode = :ee)
+
+# feet trajectories
+zh = 0.1
+foot_2_x = [range(foot_2_1[1], stop = foot_2_M[1], length = Tm)...,
+    [foot_2_M[1] for t = 1:Tm]...]
+foot_2_z = sqrt.((zh^2.0) * (1.0 .- ((foot_2_x).^2.0)
+    ./ abs(foot_2_1[1])^2.0) .+ 1.0e-8)
+
+foot_1_x = [[foot_1_M[1] for t = 1:Tm]...,
+    range(foot_1_M[1], stop = foot_1_T[1], length = Tm)...]
+foot_1_z = sqrt.((zh^2.0) * (1.0 .- ((foot_1_x .- abs(foot_1_T[1] / 2.0)).^2.0)
+    ./ abs(foot_1_T[1] / 2.0)^2.0) .+ 1.0e-8)
+
+# using Plots
+# plot(foot_2_x, foot_2_z)
+# plot!(foot_1_x, foot_1_z, aspect_ratio = :equal)
+
+t = range(0.0, stop = tf, length = T)
+length(t)
+length(foot_2_x)
+# plot(t, foot_2_x)
+# plot!(t, foot_1_x)
 #
-# qT = copy(q1)
-# qT[1] = 1.0
-# q_ref = linear_interpolation(q1, qT, T)
-# visualize!(vis, model, q_ref, Δt = h)
+# plot(t, foot_2_z)
+# plot!(t, foot_1_z)
 
 # Control
 # u = (τ1..7, λ1..4, β1..8, ψ1..4, η1...8, s1)
@@ -147,11 +173,9 @@ visualize!(vis, model, [q1], Δt = h)
 # ul <= u <= uu
 u1 = initial_torque(model, q1, h)[model.idx_u] # gravity compensation for current q
 _uu = Inf * ones(model.m)
-# _uu[model.idx_u] = [10, 100, 50, 100, 50, 40, 40]
-_uu[model.idx_u] .= 100.0
+_uu[model.idx_u] .= 5.0
 _ul = zeros(model.m)
-# _ul[model.idx_u] = [-10, -100, -50, -100, -50, -40, -40]
-_ul[model.idx_u] .= -100.0
+_ul[model.idx_u] .= -5.0
 ul, uu = control_bounds(model, T, _ul, _uu)
 
 qL = [-Inf; -Inf; q1[3:end] .- pi / 4.0; -Inf; -Inf; q1[3:end] .- pi / 4.0]
@@ -162,146 +186,39 @@ xl, xu = state_bounds(model, T,
     x1 = [q1; q1], # initial state
     xT = [qT; qT]) # goal state
 
-# xl, xu = state_bounds(model, T,
-#     -Inf * ones(model.n), Inf * ones(model.n),
-#     x1 = [q1; q1], # initial state
-#     xT = [qT; qT]) # goal state
-
 # Objective
-include_objective(["velocity", "nonlinear_stage", "task_momentum"])
+include_objective(["velocity", "nonlinear_stage", "control_velocity"])
 
 x0 = configuration_to_state(q_ref)
 
 # penalty on slack variable
 obj_penalty = PenaltyObjective(1.0e3, model.m)
 
-### Experimental ###
-# Configurations
-# 1: x pos
-# 2: z pos
-# 3: torso angle (rel. to downward vertical)
-# 4: thigh 1 angle (rel. to downward vertical)
-# 5: calf 1 (rel. to downward vertical)
-# 6: thigh 2 (rel. to downward vertical)
-# 7: calf 2 (rel. to downward vertical)
-# 8: foot 1 (rel. to downward vertical)
-# 9: foot 2 (rel. to downward vertical)
-
-function get_com_momentum(q)
-	J = jacobian_4(model, q)
-	M = M_func(model, q)
-	Λ = inv(J*inv(M)*J')
-	# Λ = J*inv(M)*J'
-	return Λ*J
-end
-
-function get_heel1_momentum(q)
-	J = jacobian_2(model, q, body = :calf_1, mode = :ee)
-	Jw = [0., 0, 1, 1, 1, 0, 0, 1, 0]'
-	J = [J; Jw]
-	M = M_func(model, q)
-	Λ = inv(J*inv(M)*J')
-	# Λ = J*inv(M)*J'
-	return Λ*J
-end
-
-function get_heel2_momentum(q)
-	J = jacobian_2(model, q, body = :calf_2, mode = :ee)
-	Jw = [0., 0, 1, 0, 0, 1, 1, 0, 1]'
-	J = [J; Jw]
-	M = M_func(model, q)
-	Λ = inv(J*inv(M)*J')
-	# Λ = J*inv(M)*J'
-	return Λ*J
-end
-
-function get_heel1_effective_mass(q)
-	J = jacobian_2(model, q, body = :calf_1, mode = :ee)
-	Jw = [0., 0, 1, 1, 1, 0, 0, 1, 0]'
-	J = [J; Jw]
-	M = M_func(model, q)
-	Λ_inv = J*inv(M)*J'
-	return Λ_inv*J
-end
-
-function get_heel2_effective_mass(q)
-	J = jacobian_2(model, q, body = :calf_2, mode = :ee)
-	Jw = [0., 0, 1, 0, 0, 1, 1, 0, 1]'
-	J = [J; Jw]
-	M = M_func(model, q)
-	Λ_inv = J*inv(M)*J'
-	return Λ_inv*J
-end
-
-# Angular momentum regulated to 0
-gain = 1e0
-q_v = gain*[0., 0, 1]
-com_angular_momentum_control = task_momentum_objective(
-    [Diagonal(q_v) for t = 1:T-1],
-    model.nq,
-    h = h,
-	get_com_momentum,
-    idx_angle = collect([3, 4, 5, 6, 7, 8 ,9])
-	)
-
-# Min L2 effective mass (right and left heel)
-q_v = gain*[1., 1, 0]
-heel1_effective_mass_control = task_momentum_objective(
-    [Diagonal(q_v) for t = 1:T-1],
-    model.nq,
-    h = h,
-	get_heel1_effective_mass,
-    idx_angle = collect([3, 4, 5, 6, 7, 8 ,9])
-	)
-
-q_v = gain*[1., 1, 0]
-heel2_effective_mass_control = task_momentum_objective(
-    [Diagonal(q_v) for t = 1:T-1],
-    model.nq,
-    h = h,
-	get_heel2_effective_mass,
-    idx_angle = collect([3, 4, 5, 6, 7, 8, 9])
-	)
-
-# Heel L2 smoothing
-
-# Quadratic state-energy cost
-obj_control = quadratic_tracking_objective(
-    [Diagonal(0e-3 * ones(model.n)) for t = 1:T],
-    [Diagonal([0e-3 * ones(model.nu)..., 0.0 * ones(model.m - model.nu)...]) for t = 1:T-1],
-    [x0[end] for t = 1:T],
-    [[u1; zeros(model.m - model.nu)] for t = 1:T-1])
-
-obj = MultiObjective([obj_penalty,
-                      obj_control])
-					  # com_angular_momentum_control])
-					  # heel1_effective_mass_control,
-					  # heel2_effective_mass_control])
-					  # obj_forward])
-###
-#---
-
 # quadratic tracking objective
 # Σ (x - xref)' Q (x - x_ref) + (u - u_ref)' R (u - u_ref)
 obj_control = quadratic_tracking_objective(
-    [Diagonal(1.0e-3 * ones(model.n)) for t = 1:T],
-    [Diagonal([1.0e-1 * ones(model.nu)..., 0.0 * ones(model.m - model.nu)...]) for t = 1:T-1],
-    [x0[end] for t = 1:T],
+    [Diagonal(0.0 * ones(model.n)) for t = 1:T],
+    [Diagonal([0.0 * ones(model.nu)..., 0.0 * ones(model.m - model.nu)...]) for t = 1:T-1],
+    [x_ref[t] for t = 1:T],
     [[u1; zeros(model.m - model.nu)] for t = 1:T-1])
 
 # quadratic velocity penalty
 # Σ v' Q v
-q_v = 1.0e-1 * ones(model.nq)
+q_v = 1.0e-2 * ones(model.nq)
+q_v[2] = 1.0e-1
+q_v[3] = 1.0
 obj_velocity = velocity_objective(
     [Diagonal(q_v) for t = 1:T-1],
     model.nq,
     h = h,
     idx_angle = collect([3, 4, 5, 6, 7, 8 ,9]))
 
+obj_control_velocity = control_velocity_objective(Diagonal([1.0e-1 * ones(model.nu); 0.0 * ones(model.m - model.nu)]))
+
 # torso height
 t_h = kinematics_1(model, q1, body = :torso, mode = :com)[2]
 function l_stage_torso_h(x, u, t)
-    return 10.0 * (kinematics_1(model,
+    return 1.0 * (kinematics_1(model,
             get_q⁺(x), body = :torso, mode = :com)[2] - t_h)^2.0
 end
 l_terminal_torso_h(x) = 0.0
@@ -309,16 +226,16 @@ obj_th = nonlinear_stage_objective(l_stage_torso_h, l_terminal_torso_h)
 
 # foot 1 height
 function l_stage_fh1(x, u, t)
-    return 10.0 * (kinematics_3(model,
-        get_q⁺(x), body = :foot_1, mode = :com)[2] - 0.1)^2.0
+    return 50.0 * (kinematics_3(model,
+        get_q⁺(x), body = :foot_1, mode = :com)[2] - foot_1_z[t])^2.0
 end
 l_terminal_fh1(x) = 0.0
 obj_fh1 = nonlinear_stage_objective(l_stage_fh1, l_terminal_fh1)
 
 # foot 2 height
 function l_stage_fh2(x, u, t)
-    return 10.0 * (kinematics_3(model,
-        get_q⁺(x), body = :foot_2, mode = :com)[2] - 0.1)^2.0
+    return 50.0 * (kinematics_3(model,
+        get_q⁺(x), body = :foot_2, mode = :com)[2] - foot_2_z[t])^2.0
 end
 l_terminal_fh2(x) = 0.0
 obj_fh2 = nonlinear_stage_objective(l_stage_fh2, l_terminal_fh2)
@@ -332,33 +249,32 @@ function l_stage_torso_feet(x, u, t)
 	x_foot2 = kinematics_3(model,
 				        get_q⁺(x), body = :foot_2, mode = :com)[1]
 
-	return 10.0 * (x_torso - (x_foot2 - x_foot1) / 2.0)^2.0
+	return 1.0 * (x_torso - (x_foot2 - x_foot1) / 2.0)^2.0
 end
 l_terminal_torso_feet(x) = 0.0
 obj_tf = nonlinear_stage_objective(l_stage_torso_feet, l_terminal_torso_feet)
 
-function l_stage_forward(x, u, t)
-	px = kinematics_1(model,
-            get_q⁺(x), body = :torso, mode = :com)[1]
-
-	return 1.0 * (px - qT[1])^2.0
-end
-l_terminal_forward(x) = 0.0
-obj_forward = nonlinear_stage_objective(l_stage_forward, l_terminal_forward)
+# function l_stage_forward(x, u, t)
+# 	px = kinematics_1(model,
+#             get_q⁺(x), body = :torso, mode = :com)[1]
+#
+# 	return 1.0 * (px - qT[1])^2.0
+# end
+# l_terminal_forward(x) = 0.0
+# obj_forward = nonlinear_stage_objective(l_stage_forward, l_terminal_forward)
 
 obj = MultiObjective([obj_penalty,
                       obj_control,
                       obj_velocity,
+					  # obj_control_velocity,
                       obj_th,
-                      # obj_tl,
                       obj_fh1,
                       obj_fh2,
 					  obj_tf])
 					  # obj_forward])
 
-#---
 # Constraints
-include_constraints(["contact", "loop", "contact_no_slip", "free_time"])
+include_constraints(["contact"])#, "loop", "free_time"])
 # con_loop = loop_constraints(model, collect([(2:7)...,(9:14)...]), 1, T)
 con_contact = contact_constraints(model, T)
 # con_free_time = free_time_constraints(T)
@@ -376,62 +292,34 @@ prob = trajectory_optimization_problem(model,
                con = con)
 
 # trajectory initialization
-u0 = [[u1; 0 * rand(model.m - model.nu)] for t = 1:T-1] # random controls
+u0 = [[u1; 0.0e-8 * rand(model.m - model.nu)] for t = 1:T-1] # random controls
 
 # Pack trajectories into vector
-# z0 = pack(x0, u0, prob) + 0.005 * rand(prob.num_var)
-z0 = pack(x0, u0, prob)
+z0 = pack(x0, u0, prob) + 0.0e-8 * rand(prob.num_var)
 
 # Solve
 include_snopt()
 @time z̄, info = solve(prob, copy(z0),
     nlp = :SNOPT7,
     tol = 1.0e-3, c_tol = 1.0e-3, mapl = 5,
-    time_limit = 10 * 60, max_iter = 1e5)
+    time_limit = 60 * 3)
 @show check_slack(z̄, prob)
 x̄, ū = unpack(z̄, prob)
 visualize!(vis, model, state_to_configuration(x̄), Δt = h)
 
-# if false
-#     include_snopt()
-# 	@time z̄ , info = solve(prob, copy(z0),
-# 		nlp = :SNOPT7,
-# 		tol = 1.0e-3, c_tol = 1.0e-3, mapl = 5,
-# 		time_limit = 60 * 3)
-# 	@show check_slack(z̄, prob)
-# 	x̄, ū = unpack(z̄, prob)
-#     tfc, tc, h̄ = get_time(ū)
-
-# 	#projection
-# 	Q = [Diagonal(ones(model.n)) for t = 1:T]
-# 	R = [Diagonal(0.1 * ones(model.m)) for t = 1:T-1]
-# 	x_proj, u_proj = lqr_projection(model, x̄, ū, h̄[1], Q, R)
+# using Plots
+# fh1 = [kinematics_2(model,
+#     state_to_configuration(x̄)[t], body = :calf_1, mode = :ee)[2] for t = 1:T]
+# fh2 = [kinematics_2(model,
+#     state_to_configuration(x̄)[t], body = :calf_2, mode = :ee)[2] for t = 1:T]
+# plot(fh1, linetype = :steppost, label = "foot 1")
+# plot!(fh2, linetype = :steppost, label = "foot 2")
 #
-# 	@show tfc
-# 	@show h̄[1]
-# 	@save joinpath(pwd(), "examples/trajectories/walker_steps.jld2") x̄ ū h̄ x_proj u_proj
-# else
-# 	@load joinpath(pwd(), "examples/trajectories/walker_steps.jld2") x̄ ū h̄ x_proj u_proj
-# end
-
-# Visualize
-vis = Visualizer()
-render(vis)
-visualize!(vis, model, state_to_configuration(x̄), Δt = h)
-
-using Plots
-fh1 = [kinematics_2(model,
-    state_to_configuration(x̄)[t], body = :calf_1, mode = :ee)[2] for t = 1:T]
-fh2 = [kinematics_2(model,
-    state_to_configuration(x̄)[t], body = :calf_2, mode = :ee)[2] for t = 1:T]
-plot(fh1, linetype = :steppost, label = "foot 1")
-plot!(fh2, linetype = :steppost, label = "foot 2")
-
-plot(hcat(ū...)[1:7, :]',
-    linetype = :steppost,
-    label = "",
-    color = :red,
-    width = 2.0)
+# plot(hcat(ū...)[1:7, :]',
+#     linetype = :steppost,
+#     label = "",
+#     color = :red,
+#     width = 2.0)
 #
 # plot!(hcat(u_proj...)[1:4, :]',
 #     linetype = :steppost,
@@ -443,10 +331,10 @@ plot(hcat(ū...)[1:7, :]',
 #     label = "",
 #     width = 2.0)
 
-plot(hcat(state_to_configuration(x̄)...)'[1:3],
-    color = :red,
-    width = 2.0,
-    label = "")
+# plot(hcat(state_to_configuration(x̄)...)'[1:3],
+#     color = :red,
+#     width = 2.0,
+#     label = "")
 #
 # plot!(hcat(state_to_configuration(x_proj)...)',
 #     color = :black,
