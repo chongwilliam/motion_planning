@@ -85,17 +85,32 @@ ns = 1                    # slack
 μ = 0.5      # coefficient of friction
 g = 9.81     # gravity
 
+# # Model parameters
+# m_torso = 1.0
+# m_thigh = 0.01
+# m_calf = 0.01
+# m_foot = 0.001
+#
+# l_torso = 0.25
+# l_thigh = 0.25
+# l_calf = 0.25
+# l_foot = 0.075
+#
+# d_torso = 0.125
+# d_thigh = 0.125
+# d_calf = 0.125
+# d_foot = 0.025
+#
+# J_torso = 0.1   # 1.0 / 12.0 * m_torso * l_torso^2.0
+# J_thigh = 0.001 # 1.0 / 12.0 * m_thigh * l_thigh^2.0
+# J_calf = 0.001  # 1.0 / 12.0 * m_calf * l_calf^2.0
+# J_foot = 0.0001 # 1.0 / 12.0 * m_foot * (l_foot + d_foot)^2.0
+
 # Model parameters
-<<<<<<< HEAD
 m_torso = 34.66
 m_thigh = 7.77
 m_calf = 3.52
 m_foot = 1.05
-
-J_torso = 6.41
-J_thigh = 0.02
-J_calf = 0.02
-J_foot = 8.8e-3
 
 l_torso = 0.52
 l_thigh = 0.40
@@ -105,49 +120,12 @@ l_foot = 0.26
 d_torso = l_torso / 2
 d_thigh = l_thigh / 2
 d_calf = l_calf / 2
-d_foot = l_foot / 2
+d_foot = 0.04
 
-# Model parameters
-# m_torso = 1.0
-# m_thigh = 0.01
-# m_calf = 0.01
-# m_foot = 0.001
-#
-# J_torso = 0.1
-# J_thigh = 0.001
-# J_calf = 0.001
-# J_foot = 0.0001
-#
-# l_torso = 0.25
-# l_thigh = 0.25
-# l_calf = 0.25
-# l_foot = 0.1
-#
-# d_torso = 0.125
-# d_thigh = 0.125
-# d_calf = 0.125
-# d_foot = 0.05
-=======
-m_torso = 1.0
-m_thigh = 0.01
-m_calf = 0.01
-m_foot = 0.001
-
-l_torso = 0.25
-l_thigh = 0.25
-l_calf = 0.25
-l_foot = 0.075
-
-d_torso = 0.125
-d_thigh = 0.125
-d_calf = 0.125
-d_foot = 0.025
-
-J_torso = 0.1   # 1.0 / 12.0 * m_torso * l_torso^2.0
-J_thigh = 0.001 # 1.0 / 12.0 * m_thigh * l_thigh^2.0
-J_calf = 0.001  # 1.0 / 12.0 * m_calf * l_calf^2.0
-J_foot = 0.0001 # 1.0 / 12.0 * m_foot * (l_foot + d_foot)^2.0
->>>>>>> upstream/main
+J_torso = 6.41   # 1.0 / 12.0 * m_torso * l_torso^2.0
+J_thigh = 0.02 # 1.0 / 12.0 * m_thigh * l_thigh^2.0
+J_calf = 8.8e-3  # 1.0 / 12.0 * m_calf * l_calf^2.0
+J_foot = 9.45e-4 # 1.0 / 12.0 * m_foot * (l_foot + d_foot)^2.0
 
 n = 2 * nq
 m = nu + nc + nb + nc + nb + ns
@@ -398,6 +376,17 @@ function jacobian_4(model::Walker, q)
 	return [Jv; Jw]
 end
 
+""" Get instantaneous gravity generalized forces """
+function G(model::Walker, q)
+	G = jacobian_1(model, q, body=:torso, mode=:com)' * [0; model.m_torso * g]
+	G += jacobian_1(model, q, body=:thigh_1, mode=:com)' * [0; model.m_thigh1 * g]
+	G += jacobian_1(model, q, body=:thigh_2, mode=:com)' * [0; model.m_thigh2 * g]
+	G += jacobian_2(model, q, body=:calf_1, mode=:com)' * [0; model.m_calf1 * g]
+	G += jacobian_2(model, q, body=:calf_2, mode=:com)' * [0; model.m_calf2 * g]
+	G += jacobian_3(model, q, body=:foot_1, mode=:com)' * [0; model.m_foot1 * g]
+	G += jacobian_3(model, q, body=:foot_2, mode=:com)' * [0; model.m_foot2 * g]
+	return G
+end
 
 # Lagrangian
 
