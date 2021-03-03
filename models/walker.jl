@@ -82,7 +82,7 @@ nb = nc * nf              # number of friction parameters
 ns = 1                    # slack
 
 # World parameters
-μ = 0.5      # coefficient of friction
+μ = 1.0      # coefficient of friction
 g = 9.81     # gravity
 
 # # Model parameters
@@ -705,7 +705,7 @@ function visualize!(vis, model::Walker, q;
 		Point3f0(0.0, 0.0, model.l_foot1 + model.d_foot1),
 		convert(Float32, 0.025))
 	setobject!(vis["foot1"], foot_1,
-		MeshPhongMaterial(color = RGBA(0.0, 0.0, 0.0, 1.0)))
+		MeshPhongMaterial(color = RGBA(0.0, 0.0, 0.0, 1.0)))  # changed
 
 	thigh_2 = Cylinder(Point3f0(0.0,0.0,0.0), Point3f0(0.0, 0.0, model.l_thigh2),
 		convert(Float32, 0.025))
@@ -729,9 +729,12 @@ function visualize!(vis, model::Walker, q;
 	setobject!(vis["heel2"], Sphere(Point3f0(0.0),
 		convert(Float32, r)),
 		MeshPhongMaterial(color = RGBA(1.0, 165.0 / 255.0, 0.0, 1.0)))
+	# setobject!(vis["toe1"], Sphere(Point3f0(0.0),
+	# 	convert(Float32, r)),
+	# 	MeshPhongMaterial(color = RGBA(1.0, 165.0 / 255.0, 0.0, 1.0)))
 	setobject!(vis["toe1"], Sphere(Point3f0(0.0),
 		convert(Float32, r)),
-		MeshPhongMaterial(color = RGBA(1.0, 165.0 / 255.0, 0.0, 1.0)))
+		MeshPhongMaterial(color = RGBA(0, 0, 1.0, 1.0)))  # changed
 	setobject!(vis["toe2"], Sphere(Point3f0(0.0),
 		convert(Float32, r)),
 		MeshPhongMaterial(color = RGBA(1.0, 165.0 / 255.0, 0.0, 1.0)))
@@ -803,8 +806,10 @@ function visualize!(vis, model::Walker, q;
 		end
 	end
 
+	# settransform!(vis["/Cameras/default"],
+	#     compose(Translation(0.0, 0.0, -1.0), LinearMap(RotZ(-pi / 2.0))))
 	settransform!(vis["/Cameras/default"],
-	    compose(Translation(0.0, 0.0, -1.0), LinearMap(RotZ(-pi / 2.0))))
+	    compose(Translation(0, -2.0, -1.0), LinearMap(RotZ(-pi / 2.0))))  # changed
 
 	MeshCat.setanimation!(vis, anim)
 end

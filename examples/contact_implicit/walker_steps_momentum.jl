@@ -12,10 +12,12 @@ function get_q⁺(x)
 end
 
 # Horizon
-T = 26
+T_w = 26  # walking horizon
+T_s = 0  # stopping horizon
+T = T_w + T_s
 
 # Time step
-tf = 2.5
+tf = 1.5
 h = tf / (T - 1)
 
 # Configurations
@@ -36,7 +38,7 @@ q1[9] = pi / 2.0
 q1[2] = model.l_thigh1 + model.l_calf1
 
 qT = copy(q1)
-qT[1] = 1.5
+qT[1] = Inf
 # q_ref = linear_interpolation(q1, qT, T)
 q_ref = linear_interpolation(q1, q1, T)
 visualize!(vis, model, q_ref, Δt = h)
@@ -54,30 +56,30 @@ visualize!(vis, model, q_ref, Δt = h)
 # ul <= u <= uu
 u1 = initial_torque(model, q1, h)[model.idx_u]  # gravity compensation for current q
 _uu = Inf * ones(model.m)
-_uu[model.idx_u] = [100, 100, 50, 100, 50, 40, 40]
-# _uu[model.idx_u] .= 100
+# _uu[model.idx_u] = [100, 100, 50, 100, 50, 40, 40]
+_uu[model.idx_u] .= 100
 _ul = zeros(model.m)
-_ul[model.idx_u] = [-100, -100, -50, -100, -50, -40, -40]
-# _ul[model.idx_u] .= -100
+# _ul[model.idx_u] = [-100, -100, -50, -100, -50, -40, -40]
+_ul[model.idx_u] .= -100
 ul, uu = control_bounds(model, T, _ul, _uu)
-
-# qL_offset = [-0; -pi/2; -pi/2; -pi/2; -pi/2; -pi/2; -pi/2]
-# qU_offset = [0; pi/2; pi/2; pi/2; pi/2; pi/2; pi/2]
-# qL = [-Inf; -Inf; q1[3:end] + qL_offset; -Inf; -Inf; q1[3:end] + qL_offset]
-# qU = [Inf; Inf; q1[3:end] + qU_offset; Inf; Inf; q1[3:end] + qU_offset]
 
 # qL = [-Inf; -Inf; q1[3:end] .- pi / 2.0; -Inf; -Inf; q1[3:end] .- pi / 2.0]
 # qU = [Inf; Inf; q1[3:end] .+ pi / 2.0; Inf; Inf; q1[3:end] .+ pi / 2.0]
 
-qL = [-Inf; -Inf; q1[3] - pi/32.0; q1[4:end] .- pi / 2.0; -Inf; -Inf; q1[3] - pi/32.0; q1[4:end] .- pi / 2.0]
-qU = [Inf; Inf; q1[3] + pi/32.0; q1[4:end] .+ pi / 2.0; Inf; Inf; q1[3] + pi/32.0; q1[4:end] .+ pi / 2.0]
+qL = [-Inf; -Inf; q1[3] - pi/16.0; q1[4:end] .- pi / 2.0; -Inf; -Inf; q1[3] - pi/16.0; q1[4:end] .- pi / 2.0]
+qU = [Inf; Inf; q1[3] + pi/16.0; q1[4:end] .+ pi / 2.0; Inf; Inf; q1[3] + pi/16.0; q1[4:end] .+ pi / 2.0]
+
+xl, xu = state_bounds(model, T,
+    qL, qU,
+    x1 = [q1; q1],
+	xT = [Inf * ones(model.nq); qT[1]; Inf * ones(model.nq - 1)])
 
 # xl, xu = state_bounds(model, T,
 #     qL, qU,
 #     x1 = [q1; q1], # initial state
 #     xT = [qT; qT]) # goal state
 
-xl, xu = state_bounds(model, T, qL, qU, x1 = [q1; q1])
+# xl, xu = state_bounds(model, T, qL, qU, x1 = [q1; q1])
 
 # Configurations
 # 1: x pos
@@ -93,7 +95,9 @@ xl, xu = state_bounds(model, T, qL, qU, x1 = [q1; q1])
 function joint_limits!(c, x, u)
 	# [q_prev; q_curr] = [7; 7] (ineq > 0); torso and thigh limits wrt global downards vertical
 	qL = [0; -pi/2; 0; -pi/2]  # (thigh 1 - calf 1, calf 1 - foot 1, thigh 2 - calf 2, calf 2 - foot 2)
-	qU = [pi; 0; pi; 0]
+	qU = [pi; -pi/4; pi; -pi/4]
+	# qL = [0; 0; 0; 0]  # (thigh 1 - calf 1, calf 1 - foot 1, thigh 2 - calf 2, calf 2 - foot 2)
+	# qU = [pi; pi/2; pi; pi/2]
 	q1 = x[9+4:9+7]  # (thigh 1, calf 1, thigh 2, calf 2)
 	q2 = [x[9+5]; x[9+8]; x[9+7]; x[9+9]]  # (calf 1, foot 1, calf 2, foot 2)
 	c[1:4] = q1 - q2 - qL
@@ -107,7 +111,7 @@ include_objective(["task_momentum", "task_momentum_smoothing", "task_gravity"])
 x0 = configuration_to_state(q_ref)
 
 # penalty on slack variable
-obj_penalty = PenaltyObjective(1.0e0, model.m)
+obj_penalty = PenaltyObjective(1e5, model.m)
 
 ### Experimental ###
 function get_com_momentum(q)
@@ -192,8 +196,8 @@ function get_heel2_effective_mass(q)
 end
 
 """ Cost tuning """
-com_linear_gain = 1e0
-com_angular_gain = 1e0
+com_linear_gain = 0*1e0
+com_angular_gain = 0*1e0
 com_linear_smooth_gain = 1e0
 com_angular_smooth_gain = 1e0
 ###
@@ -201,20 +205,30 @@ heel_linear_smoothing_gain = 1e0
 heel_angular_smoothing_gain = 1e0
 heel_mass_gain = 1e0
 ###
-torso_p_gain = 1e0
+torso_p_gain = 1e-2
+### Primary gains
+heel_linear_gain = 1e1
+heel_angular_gain = 1e1
+toe_linear_gain = 0*1e-1
+toe_angular_gain = 0*1e-1
 ###
-heel_linear_gain = 1e0
-heel_angular_gain = 1e0
-toe_linear_gain = 1e0
-toe_angular_gain = 1e0
+posture_gain = 1e0
+control_gain = 1e-5
 
 """ Heel 1 target momentum """
-q_v = [heel_linear_gain, heel_linear_gain, 0*heel_angular_gain]
+q_v = [heel_linear_gain, heel_linear_gain, heel_angular_gain]
 target = Vector{Vector{Float64}}(undef, T-1)  # linear y, z, rotational x
 cost = []
 for t = 1:T-1
-	if t <= T/2
-		target[t] = [20., 35 - (70/(T/2))*t, 10 - (20/(T/2))*t]
+	if t <= T/4
+		target[t] = [20., 0 - (40/(T/4))*t, 1 * (0 - (10/(T/4))*t)]  # standing start trajectory
+		# target[t] = [5., 0 - (30/(T/4))*t, 1 * (0 - (5/(T/4))*t)]  # standing start trajectory
+		push!(cost, Diagonal(q_v))
+	elseif t <= T/2
+		target[t] = [0., 0, 0]
+		push!(cost, 0 * Diagonal(q_v))
+	elseif t <= 3*T/4
+		target[t] = [20., 40 - (80/(T/4))*(t-T/2), 1 * (10 - (20/(T/4))*(t-T/2))]  # swing start trajectory
 		push!(cost, Diagonal(q_v))
 	else
 		target[t] = [0., 0, 0]
@@ -232,16 +246,25 @@ heel1_linear_momentum = task_momentum_objective(
 	)
 
 """ Heel 2 target momentum """
-q_v = [heel_linear_gain, heel_linear_gain, 0*heel_angular_gain]
+q_v = [heel_linear_gain, heel_linear_gain, heel_angular_gain]
 target = Vector{Vector{Float64}}(undef, T-1)
 cost = []
 for t = 1:T-1
-	if t >= T/2
-		target[t] = [20., 35 - (70/(T/2))*(t-T/2), 10 - (20/(T/2))*(t-T/2)]
-		push!(cost, Diagonal(q_v))
-	else
+	if t <= T/4
 		target[t] = [0., 0, 0]
 		push!(cost, 0 * Diagonal(q_v))
+	elseif t <= T/2
+		# target[t] = [20., 35 - (70/(T/2))*(t-T/2), 10 - (20/(T/2))*(t-T/2)]
+		target[t] = [20., 40 - (80/(T/4))*(t-T/4), 1 * (10 - (20/(T/4))*(t-T/4))]
+		push!(cost, Diagonal(q_v))
+	elseif t <= 3*T/4
+		target[t] = [0., 0, 0]
+		push!(cost, 0 * Diagonal(q_v))
+	else
+		# target[t] = [0., 0, 0]
+		# push!(cost, 1 * Diagonal(q_v))
+		target[t] = [20., 40 - (80/(T/4))*(t-3*T/4), 1 * (10 - (20/(T/4))*(t-3*T/4))]
+		push!(cost, Diagonal(q_v))
 	end
 end
 
@@ -255,16 +278,19 @@ heel2_linear_momentum = task_momentum_objective(
 	)
 
 """ Toe 1 target momentum """
-q_v = [toe_linear_gain, toe_linear_gain, 0*toe_angular_gain]
+q_v = [toe_linear_gain, toe_linear_gain, toe_angular_gain]
 target = Vector{Vector{Float64}}(undef, T-1)  # linear y, z, rotational x
 cost = []
 for t = 1:T-1
-	if t <= T/2
+	if t <= T_w/2
 		target[t] = [0., 0, 0]
-		push!(cost, Diagonal(zeros(3)))
-	else
+		push!(cost, 0 * Diagonal(q_v))
+	elseif t <= T_w
 		target[t] = [0., 0, 0]
 		push!(cost, Diagonal(q_v))
+	else
+		target[t] = [0., 0, 0]
+		push!(cost, 0 * Diagonal(q_v))
 	end
 end
 
@@ -278,16 +304,19 @@ toe1_linear_momentum = task_momentum_objective(
 	)
 
 """ Toe 2 target momentum """
-q_v = [toe_linear_gain, toe_linear_gain, 0*toe_angular_gain]
+q_v = [toe_linear_gain, toe_linear_gain, toe_angular_gain]
 target = Vector{Vector{Float64}}(undef, T-1)
 cost = []
 for t = 1:T-1
-	if t >= T/2
-		target[t] = [0., 0, 0]
-		push!(cost, Diagonal(zeros(3)))
-	else
+	if t <= T_w/2
 		target[t] = [0., 0, 0]
 		push!(cost, Diagonal(q_v))
+	elseif t <= T_w
+		target[t] = [0., 0, 0]
+		push!(cost, 0 * Diagonal(q_v))
+	else
+		target[t] = [0., 0, 0]
+		push!(cost, 0 * Diagonal(q_v))
 	end
 end
 
@@ -300,8 +329,30 @@ toe2_linear_momentum = task_momentum_objective(
     idx_angle = collect([3, 4, 5, 6, 7, 8 ,9])
 	)
 
+""" Standing end constraint """
+q_v = [com_linear_gain, com_linear_gain, com_angular_gain]
+target_momentum = [[0., 0, 0] for i = 1:T-1]
+cost = []
+for t = 1:T-1
+	if t <= T_w/2
+		push!(cost, 0 *Diagonal(q_v))
+	elseif t <= T_w
+		push!(cost, 0 * Diagonal(q_v))
+	else
+		push!(cost, Diagonal(q_v))
+	end
+end
+terminal_momentum = task_momentum_objective(
+    cost,
+    model.nq,
+    h = h,
+	get_torso_momentum,
+	target_momentum,
+    idx_angle = collect([3, 4, 5, 6, 7, 8 ,9])
+	)
+
 """ COM momentum """
-q_v = [0*com_linear_gain, 0*com_linear_gain, com_angular_gain]
+q_v = [com_linear_gain, com_linear_gain, com_angular_gain]
 target_momentum = [[20., 0, 0] for i = 1:T-1]
 com_momentum = task_momentum_objective(
     [Diagonal(q_v) for t = 1:T-1],
@@ -412,25 +463,33 @@ heel2_smoothing = task_momentum_smoothing_objective(
 	)
 
 """ Quadratic state-energy cost """
-posture_cost = [0.; 0; 0 .* 1e-3*ones(model.n-2)]
+q_v = [0.; 0 * posture_gain * ones(model.n-1)]  # including height
+posture_cost = []
+for t = 1:T
+	if t > 3*T/4
+		push!(posture_cost, Diagonal(q_v))
+	else
+		push!(posture_cost, 0 * Diagonal(q_v))
+	end
+end
 obj_control = quadratic_tracking_objective(
-    [Diagonal(posture_cost) for t = 1:T],
-    [Diagonal([1e-3* ones(model.nu)..., 0.0 * ones(model.m - model.nu)...]) for t = 1:T-1],
+    posture_cost,
+    [Diagonal([control_gain * ones(model.nu)..., 0.0 * ones(model.m - model.nu)...]) for t = 1:T-1],
     [x0[end] for t = 1:T],
-    [[u1; zeros(model.m - model.nu)] for t = 1:T-1])
+    [[0 * u1; zeros(model.m - model.nu)] for t = 1:T-1])
 
 obj = MultiObjective([obj_penalty,
                       # obj_control,
-					  # com_linear_momentum,
-					  # com_angular_momentum])
+					  # com_momentum,
 					  # torso_task_gravity,
 					  # heel1_smoothing,
 					  # heel2_smoothing,
 					  # com_angular_smoothing,
 					  heel1_linear_momentum,
-					  heel2_linear_momentum,
-					  toe1_linear_momentum,
-					  toe2_linear_momentum])
+					  heel2_linear_momentum])
+					  # terminal_momentum])
+					  # toe1_linear_momentum,
+					  # toe2_linear_momentum])
 					  # heel1_effective_mass,
 					  # heel2_effective_mass])
 
@@ -444,7 +503,7 @@ n_stage = 8
 t_idx = [t for t = 1:T-1]
 con_limits = stage_constraints(joint_limits!, n_stage, (1:n_stage), t_idx)
 
-con = multiple_constraints([con_contact, con_limits])#, con_free_time, con_loop])
+con = multiple_constraints([con_contact, con_limits])#, con_free_time])#, con_loop])
 
 # Problem
 prob = trajectory_optimization_problem(model,
@@ -466,8 +525,8 @@ prob = trajectory_optimization_problem(model,
 # τ7: foot 2
 
 # trajectory initialization
-up = 0.1*[_uu[model.idx_u][1], _ul[model.idx_u][2], _uu[model.idx_u][3], _uu[model.idx_u][4], _ul[model.idx_u][5], 0, 0]
-u0 = [[u1 + 1 * up + 0 * randn(size(u1)); 1e0 * randn(model.m - model.nu)] for t = 1:T-1] # random controls
+up = [_uu[model.idx_u][1], _ul[model.idx_u][2], _uu[model.idx_u][3], _uu[model.idx_u][4], _ul[model.idx_u][5], 0, 0]
+u0 = [[0 * u1 + 0 * 1e-2 * up + 1e0 * randn(size(u1)); 1e-1 * randn(model.m - model.nu)] for t = 1:T-1] # random controls
 
 # Pack trajectories into vector
 # z0 = pack(x0, u0, prob) + 0.005 * rand(prob.num_var)
@@ -478,17 +537,21 @@ include_snopt()
 @time z̄, info = solve(prob, copy(z0),
     nlp = :SNOPT7,
     tol = 1.0e-3, c_tol = 1.0e-3, mapl = 5,
-    time_limit = 10 * 60, max_iter = 1000)
+    time_limit = 5 * 60, max_iter = 1000)
 # @time z̄, info = solve(prob, copy(z0),
-    # nlp = :ipopt,
-    # tol = 1.0e-3, c_tol = 1.0e-3, mapl = 5,
-    # time_limit = 10 * 60, max_iter = 1000)
+#     nlp = :ipopt,
+#     tol = 1.0e-3, c_tol = 1.0e-3, mapl = 5,
+#     time_limit = 5 * 60, max_iter = 1000)
 @show check_slack(z̄, prob)
 x̄, ū = unpack(z̄, prob)
 visualize!(vis, model, state_to_configuration(x̄), Δt = h)
 
 using JLD2
-@save "iteration0.jld2" z̄
+# @save "iteration0.jld2" z̄
+@save "iteration1.jld2" z̄
+# @save "iteration2.jld2" z̄
+
+# @load "iteration0.jld2" z̄
 
 # Warm-start
 x0, u0 = x̄, ū
